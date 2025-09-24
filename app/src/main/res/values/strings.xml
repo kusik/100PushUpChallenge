@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">100PushUpChallenge</string>
+    <string name="title_home">Home</string>
+    <string name="title_dashboard">Workout</string>
+    <string name="title_exit">Exit</string>
+</resources>
