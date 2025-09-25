@@ -231,6 +231,7 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
                     currentPushupCount++
                     updatePushUpCountDisplay()
                     speakPushUpCount() // Speak the new count
+                    saveCurrentSessionAsMaxIfNeeded()
                 }
             } else {
                 // Object is far
