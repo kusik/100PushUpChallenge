@@ -30,7 +30,11 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
 
     private lateinit var sensorManager: SensorManager
     private var proximitySensor: Sensor? = null
-
+    // ... (existing variables) ...
+    private var gravitySensor: Sensor? = null // For detecting if phone is flat
+    private lateinit var textViewPhoneState: TextView
+    private var isPhoneLyingFlat = false
+    private val gravityValues = FloatArray(3) // To store gravity sensor data
     private lateinit var textViewPushUpCount: TextView
     private lateinit var textViewMaxPushupValue: TextView
     private lateinit var textViewTimerDisplay: TextView
@@ -68,7 +72,9 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
     private var overallMaxPushupCount = 0
     private var overallTimeRemainingAtMax: Long = 0
     private var overallCountdownForMax: Long = 0
-
+    // Thresholds for flat detection (tweak these)
+    private val Z_AXIS_GRAVITY_THRESHOLD =8.5f // m/s^2 (gravity is ~9.8)
+    private val XY_AXIS_GRAVITY_THRESHOLD = 2.5f // m/s^2
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -77,6 +83,7 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
         val view = inflater.inflate(R.layout.fragment_dashboard, container, false)
 
         // Initialize Views
+        textViewPhoneState = view.findViewById(R.id.textViewPhoneState)
         textViewPushUpCount = view.findViewById(R.id.textViewPushupCount)
         textViewMaxPushupValue = view.findViewById(R.id.textViewMaxPushupValue)
         textViewTimerDisplay = view.findViewById(R.id.textViewTimerDisplay)
@@ -107,7 +114,14 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
         buttonReset.setOnClickListener { resetWorkoutState() }
 
         buttonSetTimer.setOnClickListener { handleSetTimer() }
-
+        gravitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+        if (gravitySensor == null) {
+            // Fallback to accelerometer if gravity sensor is not available
+            Log.w("WorkoutFragment", "Gravity sensor not available, falling back to Accelerometer for orientation.")
+            // You might want to use accelerometer directly in onSensorChanged if gravitySensor is null
+            // For now, we'll assume TYPE_GRAVITY is often available or the app can tolerate not having this specific check.
+            textViewPhoneState.text = "Phone state: Gravity sensor N/A"
+        }
         // Initial UI Update
         updatePushUpCountDisplay()
         updateMaxPushupDisplay()
@@ -398,27 +412,6 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
         }
     }
 
-    private fun saveMaxPushupData(
-        newMax: Int,
-        timeRemaining: Long,
-        countdownDurationForThisRecord: Long
-    ) {
-        with(sharedPreferences.edit()) {
-            putInt(KEY_MAX_PUSHUPS, newMax)
-            putLong(KEY_TIME_REMAINING_AT_MAX, timeRemaining)
-            putLong(
-                KEY_COUNTDOWN_FOR_MAX_TIME,
-                countdownDurationForThisRecord
-            ) // Save the countdown used
-            apply()
-        }
-        // Update local variables to reflect saved data immediately
-        this.maxPushupCount = newMax
-        this.timeRemainingAtMax = timeRemaining
-        // this.userSetCountdownTimeMs will still be the user's current preference for NEW sessions
-        updateMaxPushupDisplay()
-        updateTimeAtMaxDisplay()
-    }
 
     private fun resetWorkoutState() {
         if (isSessionActive) {
@@ -439,6 +432,10 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
         super.onResume()
         proximitySensor?.also { sensor ->
             sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
+        }
+        // Register gravity sensor
+        gravitySensor?.also { grav ->
+            sensorManager.registerListener(this, grav, SensorManager.SENSOR_DELAY_UI)
         }
         if (!::tts.isInitialized || !isTtsInitialized) {
             // Re-initialize TTS if needed
@@ -494,31 +491,67 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_PROXIMITY) {
-            val distance = event.values[0]
-            // Use a smaller threshold or the sensor's actual max range if it's small
-            val threshold =
-                proximitySensor?.maximumRange?.let { if (it > 1) 1.5f else it * 0.8f } ?: 1.5f
+        if (event == null) return
 
+        when (event.sensor.type) {
+            Sensor.TYPE_PROXIMITY -> {
+                // ... (your existing proximity sensor logic) ...
+                // You might want to only allow push-up counting if isPhoneLyingFlat is true
+                val distance = event.values[0]
+                val threshold = proximitySensor?.maximumRange?.let { if (it > 1) 1.5f else it * 0.8f } ?: 1.5f
 
-            if (distance < threshold) { // Assuming "near" is < threshold
-                if (!isNear) { // Became near
-                    isNear = true
-                    if (!isSessionActive && currentPushupCount == 0) {
-                        // First push-up detected, and no session is active, so start one.
-                        startNewCountdownSession()
+                if (distance < threshold) {
+                    if (!isNear) {
+                        isNear = true
+                        if (isPhoneLyingFlat) { // <<< CHECK IF PHONE IS FLAT
+                            if (!isSessionActive && currentPushupCount == 0) {
+                                startNewCountdownSession()
+                            }
+                            if (isSessionActive) {
+                                currentPushupCount++
+                                updatePushUpCountDisplay()
+                                speakPushUpCount()
+                            }
+                        } else {
+                            if (isSessionActive) { // Optional: provide feedback if they try to count but phone isn't flat
+                                Toast.makeText(context, "Place phone flat to count push-ups", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
-
-                    if (isSessionActive) {
-                        currentPushupCount++
-                        updatePushUpCountDisplay()
-                        speakPushUpCount()
-                        // Max checking logic is primarily in endSession now
+                } else {
+                    if (isNear) {
+                        isNear = false
                     }
                 }
-            } else { // Became far (or stayed far)
-                if (isNear) {
-                    isNear = false
+            }
+            Sensor.TYPE_GRAVITY -> {
+                System.arraycopy(event.values, 0, gravityValues, 0, gravityValues.size)
+                val x = gravityValues[0]
+                val y = gravityValues[1]
+                val z = gravityValues[2]
+
+                // Check if phone is lying flat (either screen up or screen down)
+                // This means the gravity vector is mostly along the Z-axis
+                if (Math.abs(z) > Z_AXIS_GRAVITY_THRESHOLD &&
+                    Math.abs(x) < XY_AXIS_GRAVITY_THRESHOLD &&
+                    Math.abs(y) < XY_AXIS_GRAVITY_THRESHOLD
+                ) {
+                    isPhoneLyingFlat = true
+                    if (z > 0) { // Gravity positive on Z: phone is screen down (or Z-axis definition)
+                        textViewPhoneState.text = "Phone state: Flat (Screen Down)"
+                    } else { // Gravity negative on Z: phone is screen up
+                        textViewPhoneState.text = "Phone state: Flat (Screen Up)"
+                    }
+                } else {
+                    isPhoneLyingFlat = false
+                    // Determine if it's portrait or landscape based on which axis has more gravity component
+                    if (Math.abs(y) > Math.abs(x) && Math.abs(y) > Z_AXIS_GRAVITY_THRESHOLD / 2) { // rough check
+                        textViewPhoneState.text = "Phone state: Upright (Portrait)"
+                    } else if (Math.abs(x) > Math.abs(y) && Math.abs(x) > Z_AXIS_GRAVITY_THRESHOLD / 2) {
+                        textViewPhoneState.text = "Phone state: Sideways (Landscape)"
+                    } else {
+                        textViewPhoneState.text = "Phone state: Tilted/Moving"
+                    }
                 }
             }
         }

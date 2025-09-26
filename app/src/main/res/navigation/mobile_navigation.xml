@@ -17,7 +17,7 @@
         tools:layout="@layout/fragment_dashboard" />
     <action
         android:id="@+id/action_workoutFragment_to_statisticsFragment"
-        app:destination="@id/statisticsFragment" />
+        app:destination="@id/navigation_statistics" />
 
     <fragment
         android:id="@+id/navigation_statistics"

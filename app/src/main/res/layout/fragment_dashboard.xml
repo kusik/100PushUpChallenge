@@ -5,8 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".ui.workout.WorkoutFragment">
-    <!-- Replace Chronometer and textViewMaxPushupTime with this -->
-    <TextView
+      <TextView
         android:id="@+id/textViewTimerDisplay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -17,7 +16,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="12dp" />
-
+    <TextView
+        android:id="@+id/textViewPhoneState"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Phone state: Unknown"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@+id/imageView"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="1dp"/>
     <TextView
         android:id="@+id/textViewTimeAchievedAtMax"
         android:layout_width="wrap_content"
