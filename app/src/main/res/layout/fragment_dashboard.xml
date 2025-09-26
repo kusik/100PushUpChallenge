@@ -5,7 +5,29 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".ui.workout.WorkoutFragment">
+    <!-- Replace Chronometer and textViewMaxPushupTime with this -->
+    <TextView
+        android:id="@+id/textViewTimerDisplay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        tools:text="01:00"
+        app:layout_constraintTop_toBottomOf="@id/textViewMaxPushupValue"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="12dp" />
 
+    <TextView
+        android:id="@+id/textViewTimeAchievedAtMax"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Best Time: N/A"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/textViewTimerDisplay"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="4dp"/>
     <TextView
         android:id="@+id/textViewPushupCount"
         android:layout_width="wrap_content"
@@ -47,16 +69,15 @@
         android:id="@+id/textViewInstructions"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="6dp"
         android:layout_marginStart="32dp"
         android:layout_marginEnd="32dp"
-        android:text="Place your phone under your chest.\nBring your chest close to the screen to count a push-up."
+        android:text="Place your phone under your chest!"
         android:textAlignment="center"
         android:textSize="18sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/textViewMaxPushupLabel" />
-
+        app:layout_constraintTop_toBottomOf="@+id/textViewTimeAchievedAtMax" />
     <ImageView
         android:id="@+id/imageView"
         android:layout_width="150dp"
@@ -65,8 +86,8 @@
         app:layout_constraintBottom_toTopOf="@+id/buttonReset"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="56dp"
         android:scaleType="fitCenter"
         tools:srcCompat="@drawable/animated_pushup" />
 
@@ -79,6 +100,40 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginBottom="92dp"/>
+        android:layout_marginBottom="172dp"/>
+    <TextView
+        android:id="@+id/textViewSetTimerLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Set Countdown (minutes):"
+        app:layout_constraintTop_toBottomOf="@+id/buttonReset"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="4dp"/>
+
+    <EditText
+        android:id="@+id/editTextTimerMinutes"
+        android:layout_width="80dp"
+        android:layout_height="wrap_content"
+        android:inputType="number"
+        android:maxLength="2"
+        android:text="1"
+        android:gravity="center"
+        app:layout_constraintTop_toBottomOf="@+id/textViewSetTimerLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/buttonSetTimer"
+        app:layout_constraintHorizontal_chainStyle="packed"
+        android:layout_marginTop="8dp"/>
+
+    <Button
+        android:id="@+id/buttonSetTimer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Set"
+        app:layout_constraintTop_toTopOf="@+id/editTextTimerMinutes"
+        app:layout_constraintBottom_toBottomOf="@+id/editTextTimerMinutes"
+        app:layout_constraintStart_toEndOf="@+id/editTextTimerMinutes"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="8dp"/>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

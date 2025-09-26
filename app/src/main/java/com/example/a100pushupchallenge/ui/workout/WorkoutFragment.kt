@@ -7,211 +7,488 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
-import android.speech.tts.TextToSpeech // Import TextToSpeech
+import android.os.CountDownTimer
+import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeech.OnInitListener
-import android.util.Log // For logging TTS errors
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
-import com.bumptech.glide.Glide
 import androidx.fragment.app.Fragment
+import com.bumptech.glide.Glide
 import com.example.a100pushupchallenge.R
-import java.util.Locale // For TTS Language
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+import androidx.navigation.fragment.findNavController
 
 class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
 
     private lateinit var sensorManager: SensorManager
     private var proximitySensor: Sensor? = null
+
     private lateinit var textViewPushUpCount: TextView
-    private lateinit var textViewMaxPushupValue: TextView // TextView for max push-ups
+    private lateinit var textViewMaxPushupValue: TextView
+    private lateinit var textViewTimerDisplay: TextView
+    private lateinit var textViewTimeAchievedAtMax: TextView
+    private lateinit var editTextTimerMinutes: EditText
+    private lateinit var buttonSetTimer: Button
     private lateinit var buttonReset: Button
     private lateinit var imageViewAnimatedGif: ImageView
-    private var isNear = false // To track if the sensor is currently detecting proximity
 
-    // TTS Variables
+    private var isNear = false
     private lateinit var tts: TextToSpeech
     private var isTtsInitialized = false
 
-    private var currentPushupCount = 0 // Renamed for clarity
-    private var maxPushupCount = 0     // To store the highest score
+    private var currentPushupCount = 0
+    private var maxPushupCount = 0
+    private var timeRemainingAtMax: Long = 0 // Stores time left on clock when max was achieved
+    private var isSessionActive = false
 
-    // SharedPreferences setup
+    private var countDownTimer: CountDownTimer? = null
+    private var userSetCountdownTimeMs: Long = 60000L // Default 1 minute, will be loaded
+    private var timeLeftInMillis: Long = 60000L      // Current time left in an active session
+
     private lateinit var sharedPreferences: SharedPreferences
     private val PREF_NAME = "PushUpPrefs"
     private val KEY_MAX_PUSHUPS = "maxPushups"
-    // Removed: Ringtone related variables and SharedPreferences key
+    private val KEY_TIME_REMAINING_AT_MAX = "timeRemainingAtMax"
+    private val KEY_USER_COUNTDOWN_MINUTES = "userCountdownMinutes"
 
-    // Removed: ringtonePickerLauncher
+    // Optional: To store the countdown duration that was active when a max was achieved.
+    // This helps in fairly comparing "best times" if the user changes the countdown duration.
+    private val KEY_COUNTDOWN_FOR_MAX_TIME = "countdownForMaxTime"
+    private val KEY_ALL_WORKOUT_RECORDS = "allWorkoutRecords"
+
+    // We'll still keep the overall best for quick display on the workout screen
+    private var overallMaxPushupCount = 0
+    private var overallTimeRemainingAtMax: Long = 0
+    private var overallCountdownForMax: Long = 0
+
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Ensure this layout name is correct for your fragment.
-        // It should NOT contain the "Select Sound" button if you're removing that feature.
         val view = inflater.inflate(R.layout.fragment_dashboard, container, false)
 
+        // Initialize Views
         textViewPushUpCount = view.findViewById(R.id.textViewPushupCount)
         textViewMaxPushupValue = view.findViewById(R.id.textViewMaxPushupValue)
+        textViewTimerDisplay = view.findViewById(R.id.textViewTimerDisplay)
+        textViewTimeAchievedAtMax = view.findViewById(R.id.textViewTimeAchievedAtMax)
+        editTextTimerMinutes = view.findViewById(R.id.editTextTimerMinutes)
+        buttonSetTimer = view.findViewById(R.id.buttonSetTimer)
         buttonReset = view.findViewById(R.id.buttonReset)
-        // Removed: Initialization of buttonSelectSound
-        imageViewAnimatedGif = view.findViewById(R.id.imageView) // Initialize your ImageView
+        imageViewAnimatedGif = view.findViewById(R.id.imageView)
+
+        // Initialize Sensor
         sensorManager = requireActivity().getSystemService(Context.SENSOR_SERVICE) as SensorManager
         proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
-
         if (proximitySensor == null) {
-            Toast.makeText(requireContext(), "Proximity sensor not available!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Proximity sensor not available!", Toast.LENGTH_SHORT)
+                .show()
         }
 
+        // Initialize SharedPreferences
         sharedPreferences = requireActivity().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        loadMaxPushupCount() // Load saved max count
+        loadUserPreferencesAndOverallBest() // Modified loading function
 
-        buttonReset.setOnClickListener {
-            saveCurrentSessionAsMaxIfNeeded() // Check and save before resetting
-            resetCurrentPushUpCount()
-        }
-
+        // Initialize TTS
         if (!::tts.isInitialized) {
             tts = TextToSpeech(requireContext(), this)
         }
+
+        // Set Listeners
+        buttonReset.setOnClickListener { resetWorkoutState() }
+
+        buttonSetTimer.setOnClickListener { handleSetTimer() }
+
+        // Initial UI Update
         updatePushUpCountDisplay()
         updateMaxPushupDisplay()
-
-        // Initialize TextToSpeech
-        // Check if tts has been initialized already to avoid re-creating on configuration change if not necessary
-        if (!::tts.isInitialized) {
-            tts = TextToSpeech(requireContext(), this)
-        }
-
-
+        updateTimeAtMaxDisplay()
+        updateTimerTextDisplay() // Show initial countdown value
+        updateOverallMaxDisplay()
         return view
     }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        // Load the GIF using Glide        // Make sure 'animated_pushup' is the name of your GIF file in res/drawable
-        // (without the .gif extension when referring to it via R.drawable)
-        Glide.with(this) // Use 'this' for Fragment, or 'requireContext()'
-            .asGif() // Explicitly state that you are loading a GIF
-            .load(R.drawable.animated_pushup) // Your GIF resource
-            // Optional: Control caching
-            // .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC) // Default, good for most cases
-            // Optional: Placeholder while loading
-            // .placeholder(R.drawable.loading_placeholder)
-            // Optional: Error image if loading fails
-            // .error(R.drawable.error_image)
+        Glide.with(this)
+            .asGif()
+            .load(R.drawable.animated_pushup) // Ensure you have this drawable
             .into(imageViewAnimatedGif)
-
-        // If your GIF is in res/raw:
-        // Glide.with(this)
-        //     .asGif()
-        //     .load(R.raw.animated_pushup_raw) // R.raw.your_gif_name
-        //     .into(imageViewAnimatedGif)
     }
 
-    // --- TextToSpeech.OnInitListener Implementation ---
+    private fun loadUserPreferencesAndOverallBest() {
+        // Load user's preferred countdown duration
+        val defaultCountdownMinutes = 1L
+        val savedMinutes =
+            sharedPreferences.getLong(KEY_USER_COUNTDOWN_MINUTES, defaultCountdownMinutes)
+        userSetCountdownTimeMs = TimeUnit.MINUTES.toMillis(savedMinutes)
+        editTextTimerMinutes.setText(savedMinutes.toString())
+        timeLeftInMillis = userSetCountdownTimeMs // Initialize for display or new session
+
+        // Load all records and determine overall best
+        val allRecords =
+            sharedPreferences.getStringSet(KEY_ALL_WORKOUT_RECORDS, HashSet()) ?: HashSet()
+        if (allRecords.isNotEmpty()) {
+            var tempOverallMax = 0
+            var tempOverallTimeRemaining = 0L
+            var tempOverallCountdown = 0L
+
+            for (recordString in allRecords) {
+                try {
+                    val parts = recordString.split("_")
+                    if (parts.size == 3) {
+                        // val duration = parts[0].toLong() // We don't need duration to find *overall* max here
+                        val pushups = parts[1].toInt()
+                        val timeRemaining = parts[2].toLong()
+                        // val countdownUsed = parts[0].toLong() // This is the countdown for THIS record
+
+                        // Logic for overall best: highest pushups, then most time remaining for that count
+                        if (pushups > tempOverallMax) {
+                            tempOverallMax = pushups
+                            tempOverallTimeRemaining = timeRemaining
+                            tempOverallCountdown =
+                                parts[0].toLong() // Store the countdown of this overall best
+                        } else if (pushups == tempOverallMax) {
+                            if (timeRemaining > tempOverallTimeRemaining) { // More time left is better
+                                tempOverallTimeRemaining = timeRemaining
+                                tempOverallCountdown = parts[0].toLong()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("WorkoutFragment", "Error parsing record: $recordString", e)
+                }
+            }
+            overallMaxPushupCount = tempOverallMax
+            overallTimeRemainingAtMax = tempOverallTimeRemaining
+            overallCountdownForMax = tempOverallCountdown
+        } else {
+            overallMaxPushupCount = 0
+            overallTimeRemainingAtMax = 0
+            overallCountdownForMax = 0
+        }
+        updateOverallMaxDisplay() // Update UI for overall max
+        updateTimerTextDisplay() // Update timer display based on user preference
+    }
+
+    private fun updateOverallMaxDisplay() {
+        textViewMaxPushupValue.text = overallMaxPushupCount.toString()
+        if (overallMaxPushupCount > 0 && overallCountdownForMax > 0) {
+            val timeAchievedFormatted = formatTime(overallTimeRemainingAtMax)
+            textViewTimeAchievedAtMax.text =
+                "Overall Best: $overallMaxPushupCount with $timeAchievedFormatted left (Timer: ${
+                    formatTime(overallCountdownForMax)
+                })"
+        } else {
+            textViewTimeAchievedAtMax.text = "Overall Best: N/A"
+        }
+    }
+
+    private fun saveUserCountdownPreference(minutes: Long) {
+        with(sharedPreferences.edit()) {
+            putLong(KEY_USER_COUNTDOWN_MINUTES, minutes)
+            apply()
+        }
+    }
+
+    private fun handleSetTimer() {
+        if (isSessionActive) {
+            Toast.makeText(
+                requireContext(),
+                "Cannot change timer during an active session.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        try {
+            val minutesStr = editTextTimerMinutes.text.toString()
+            if (minutesStr.isNotEmpty()) {
+                val minutes = minutesStr.toLong()
+                if (minutes > 0 && minutes <= 99) { // Max 99 minutes
+                    userSetCountdownTimeMs = TimeUnit.MINUTES.toMillis(minutes)
+                    saveUserCountdownPreference(minutes)
+                    timeLeftInMillis = userSetCountdownTimeMs // Update current timeLeft
+                    updateTimerTextDisplay()
+                    Toast.makeText(
+                        requireContext(),
+                        "Countdown set to $minutes minute(s).",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        requireContext(),
+                        "Please enter minutes between 1 and 99.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        } catch (e: NumberFormatException) {
+            Toast.makeText(
+                requireContext(),
+                "Invalid number format for minutes.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    // --- CountdownTimer Logic ---
+    private fun startNewCountdownSession() {
+        if (isSessionActive) { // Should not happen if logic is correct, but as a safeguard
+            countDownTimer?.cancel()
+        }
+        currentPushupCount = 0
+        updatePushUpCountDisplay()
+        timeLeftInMillis = userSetCountdownTimeMs // Start with the user-set time
+        isSessionActive = true
+        // Disable timer setting during session
+        editTextTimerMinutes.isEnabled = false
+        buttonSetTimer.isEnabled = false
+        buttonReset.text = "Stop Session"
+
+        countDownTimer = object : CountDownTimer(timeLeftInMillis, 1000) { // Update UI every second
+            override fun onTick(millisUntilFinished: Long) {
+                timeLeftInMillis = millisUntilFinished
+                updateTimerTextDisplay()
+            }
+
+            override fun onFinish() {
+                timeLeftInMillis = 0
+                updateTimerTextDisplay()
+                endSession("Time's up!")
+            }
+        }.start()
+        Toast.makeText(
+            requireContext(),
+            "Workout Started! You have ${formatTime(userSetCountdownTimeMs)}.",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    // endSession needs to be significantly changed to save record for current duration
+    private fun endSession(reason: String) {
+        if (!isSessionActive) return
+
+        isSessionActive = false
+        countDownTimer?.cancel()
+        countDownTimer = null
+
+        editTextTimerMinutes.isEnabled = true
+        buttonSetTimer.isEnabled = true
+        buttonReset.text = "Reset / Start"
+
+        val achievedPushupsThisSession = currentPushupCount
+        val countdownDurationForThisSession =
+            userSetCountdownTimeMs // Crucial: the timer used for THIS session
+        val timeRemainingThisSession = timeLeftInMillis
+
+        if (achievedPushupsThisSession > 0) {
+            val allRecords =
+                sharedPreferences.getStringSet(KEY_ALL_WORKOUT_RECORDS, HashSet())?.toMutableSet()
+                    ?: HashSet() // Important: make it mutable
+
+            var currentRecordForThisDuration: String? = null
+            var maxForThisDuration = 0
+            var timeRemainingForThisDurationMax = 0L
+
+            // Find if there's an existing record for THIS specific countdownDuration
+            val iterator = allRecords.iterator()
+            while (iterator.hasNext()) {
+                val recordString = iterator.next()
+                try {
+                    val parts = recordString.split("_")
+                    if (parts.size == 3 && parts[0].toLong() == countdownDurationForThisSession) {
+                        currentRecordForThisDuration =
+                            recordString // Found existing record for this timer setting
+                        maxForThisDuration = parts[1].toInt()
+                        timeRemainingForThisDurationMax = parts[2].toLong()
+                        iterator.remove() // Remove old record, we'll add the updated one
+                        break
+                    }
+                } catch (e: Exception) {
+                    Log.e("WorkoutFragment", "Error parsing record string: $recordString", e)
+                }
+            }
+
+            var isNewOrBetterForThisDuration = false
+            if (achievedPushupsThisSession > maxForThisDuration) {
+                isNewOrBetterForThisDuration = true
+            } else if (achievedPushupsThisSession == maxForThisDuration) {
+                if (timeRemainingThisSession > timeRemainingForThisDurationMax) { // More time left is better
+                    isNewOrBetterForThisDuration = true
+                }
+            }
+
+            if (isNewOrBetterForThisDuration) {
+                val newRecordString =
+                    "${countdownDurationForThisSession}_${achievedPushupsThisSession}_${timeRemainingThisSession}"
+                allRecords.add(newRecordString) // Add new or updated record for this duration
+
+                with(sharedPreferences.edit()) {
+                    putStringSet(KEY_ALL_WORKOUT_RECORDS, allRecords)
+                    apply()
+                }
+                Toast.makeText(
+                    requireContext(),
+                    "New record for ${formatTime(countdownDurationForThisSession)} timer: $achievedPushupsThisSession pushups!",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                // After saving, reload overall best to see if this new record is the new overall best
+                loadUserPreferencesAndOverallBest()
+
+            } else {
+                if (currentRecordForThisDuration != null) allRecords.add(
+                    currentRecordForThisDuration
+                ) // Add back old if not better
+                Toast.makeText(
+                    requireContext(),
+                    "$reason Final Count for ${formatTime(countdownDurationForThisSession)} timer: $achievedPushupsThisSession. Not a new record for this timer setting.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+
+        } else {
+            Toast.makeText(requireContext(), "$reason No push-ups recorded.", Toast.LENGTH_SHORT)
+                .show()
+        }
+
+        currentPushupCount = 0
+        updatePushUpCountDisplay()
+        timeLeftInMillis = userSetCountdownTimeMs
+        updateTimerTextDisplay()
+    }
+
+
+    private fun updateTimerTextDisplay() {
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(timeLeftInMillis)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(timeLeftInMillis) % 60
+        textViewTimerDisplay.text =
+            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+    // --- End CountdownTimer Logic ---
+
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            // Set language (e.g., US English). Change Locale.US to Locale.getDefault()
-            // to use the device's current language if supported by TTS.
             val result = tts.setLanguage(Locale.US)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e("TTS", "The Language specified is not supported!")
-                Toast.makeText(requireContext(), "TTS language not supported.", Toast.LENGTH_SHORT).show()
+                Log.e("TTS", "TTS Language not supported!")
                 isTtsInitialized = false
             } else {
                 isTtsInitialized = true
                 Log.i("TTS", "TTS Initialized successfully.")
-                // You could optionally speak an initial message here if needed, e.g., "Ready to count"
             }
         } else {
             Log.e("TTS", "TTS Initialization Failed! Status: $status")
-            Toast.makeText(requireContext(), "TTS initialization failed.", Toast.LENGTH_SHORT).show()
             isTtsInitialized = false
         }
     }
-    // --- End TextToSpeech.OnInitListener ---
 
     private fun speakPushUpCount() {
-        if (isTtsInitialized && ::tts.isInitialized) { // Check if tts is initialized before using
-            val textToSpeak = currentPushupCount.toString()
-            // QUEUE_FLUSH ensure it interrupts previous speech and speaks immediately.
-            tts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, null, null)
-        } else {
-            Log.e("TTS", "TTS not initialized or not ready, cannot speak count.")
-            // Optionally, provide a silent fallback or a different non-speech cue
+        if (isTtsInitialized && ::tts.isInitialized && !tts.isSpeaking) {
+            tts.speak(currentPushupCount.toString(), TextToSpeech.QUEUE_FLUSH, null, null)
         }
     }
-    private fun loadMaxPushupCount() {
-        maxPushupCount = sharedPreferences.getInt(KEY_MAX_PUSHUPS, 0) // Default to 0 if not found
-    }
 
-    private fun saveMaxPushupCount(newMax: Int) {
+    private fun saveMaxPushupData(
+        newMax: Int,
+        timeRemaining: Long,
+        countdownDurationForThisRecord: Long
+    ) {
         with(sharedPreferences.edit()) {
             putInt(KEY_MAX_PUSHUPS, newMax)
-            apply() // Use apply() for asynchronous save
+            putLong(KEY_TIME_REMAINING_AT_MAX, timeRemaining)
+            putLong(
+                KEY_COUNTDOWN_FOR_MAX_TIME,
+                countdownDurationForThisRecord
+            ) // Save the countdown used
+            apply()
         }
-        maxPushupCount = newMax // Update in-memory variable
+        // Update local variables to reflect saved data immediately
+        this.maxPushupCount = newMax
+        this.timeRemainingAtMax = timeRemaining
+        // this.userSetCountdownTimeMs will still be the user's current preference for NEW sessions
         updateMaxPushupDisplay()
+        updateTimeAtMaxDisplay()
     }
 
-    private fun saveCurrentSessionAsMaxIfNeeded() {
-        if (currentPushupCount > maxPushupCount) {
-            saveMaxPushupCount(currentPushupCount)
-            Toast.makeText(requireContext(), "New Max Record: $currentPushupCount!", Toast.LENGTH_SHORT).show()
+    private fun resetWorkoutState() {
+        if (isSessionActive) {
+            endSession("Session stopped by user.")
+        } else { // If no session active, just reset the counter and timer display
+            currentPushupCount = 0
+            isNear = false
+            updatePushUpCountDisplay()
+            timeLeftInMillis = userSetCountdownTimeMs
+            updateTimerTextDisplay()
+            editTextTimerMinutes.isEnabled = true // Ensure timer setting is enabled
+            buttonSetTimer.isEnabled = true
+            Toast.makeText(requireContext(), "Counters reset.", Toast.LENGTH_SHORT).show()
         }
     }
-
-    // Removed: loadSavedRingtonePreference, saveRingtonePreference, getDefaultNotificationUri,
-    // loadAndPrepareRingtone, openRingtonePicker, playCurrentSound (related to ringtones)
 
     override fun onResume() {
         super.onResume()
         proximitySensor?.also { sensor ->
-            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
         }
-        // If TTS wasn't initialized or failed, try re-initializing.
-        // This handles cases where the TTS engine might become available later
-        // or if the fragment is resumed after being paused for a long time.
         if (!::tts.isInitialized || !isTtsInitialized) {
-            if (::tts.isInitialized && !isTtsInitialized) { // If instance exists but failed init
-                // Shutdown existing failed instance before creating new
-                tts.stop()
+            // Re-initialize TTS if needed
+            if (::tts.isInitialized) {
                 tts.shutdown()
-            }
+            } // Shutdown existing if not initialized properly
             tts = TextToSpeech(requireContext(), this)
-            Log.d("TTS", "Re-attempting TTS initialization in onResume.")
         }
+        // Do not automatically resume countdown. User should explicitly start.
+        // Ensure UI reflects current state
+        editTextTimerMinutes.isEnabled = !isSessionActive
+        buttonSetTimer.isEnabled = !isSessionActive
+        buttonReset.text = if (isSessionActive) "Stop Session" else "Reset / Save Max"
+        updateTimerTextDisplay()
     }
 
     override fun onPause() {
         super.onPause()
         sensorManager.unregisterListener(this)
-        // Don't shutdown TTS in onPause if you want speech to complete if the app is briefly paused.
-        // TTS will be shut down in onDestroy.
+        // If a session is active, canceling the timer is one option.
+        // User will lose progress in that specific timed session if they leave.
+        // Or, you could try to persist the exact state of countDownTimer and resume it,
+        // but that's more complex. For now, cancel it.
+        if (isSessionActive) {
+            countDownTimer?.cancel()
+            // isSessionActive remains true, so onResume won't auto-start a new one.
+            // User would effectively have to "Stop Session" via button or let timer run out if they return.
+            // Or we can auto-end it:
+            // endSession("Session ended due to app pause");
+            Toast.makeText(
+                requireContext(),
+                "Timer paused. Resume not supported, stop session to save.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onDestroyView() {
-        // It's good practice to stop TTS if it's speaking when the view is destroyed,
-        // though onDestroy will handle the full shutdown.
+        countDownTimer?.cancel()
+        countDownTimer = null
         if (::tts.isInitialized && tts.isSpeaking) {
             tts.stop()
         }
-        super.onDestroyView()
+        super.onDestroyView() // call super after your cleanup
     }
 
-
     override fun onDestroy() {
-        // Shutdown TTS when the Fragment is destroyed to free resources.
-        // This is very important.
         if (::tts.isInitialized) {
             tts.stop()
             tts.shutdown()
-            Log.i("TTS", "TTS shutdown.")
         }
         super.onDestroy()
     }
@@ -219,22 +496,27 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_PROXIMITY) {
             val distance = event.values[0]
-            // Proximity sensors usually report a small value (e.g., 0 or 5 cm) when an object is near
-            // and a larger value when it's far. The exact values can vary by device.
-            // You might need to experiment with this threshold.
-            val threshold = proximitySensor?.maximumRange ?: 5.0f // Use max range or a default
+            // Use a smaller threshold or the sensor's actual max range if it's small
+            val threshold =
+                proximitySensor?.maximumRange?.let { if (it > 1) 1.5f else it * 0.8f } ?: 1.5f
 
-            if (distance < threshold) {
-                // Object is near
-                if (!isNear) { // Only count when transitioning from far to near
+
+            if (distance < threshold) { // Assuming "near" is < threshold
+                if (!isNear) { // Became near
                     isNear = true
-                    currentPushupCount++
-                    updatePushUpCountDisplay()
-                    speakPushUpCount() // Speak the new count
-                    saveCurrentSessionAsMaxIfNeeded()
+                    if (!isSessionActive && currentPushupCount == 0) {
+                        // First push-up detected, and no session is active, so start one.
+                        startNewCountdownSession()
+                    }
+
+                    if (isSessionActive) {
+                        currentPushupCount++
+                        updatePushUpCountDisplay()
+                        speakPushUpCount()
+                        // Max checking logic is primarily in endSession now
+                    }
                 }
-            } else {
-                // Object is far
+            } else { // Became far (or stayed far)
                 if (isNear) {
                     isNear = false
                 }
@@ -243,7 +525,7 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // You can handle accuracy changes here if needed, but for proximity, it's often not critical.
+        // Not critical for proximity
     }
 
     private fun updatePushUpCountDisplay() {
@@ -254,13 +536,34 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
         textViewMaxPushupValue.text = maxPushupCount.toString()
     }
 
-    private fun resetCurrentPushUpCount() {
-        currentPushupCount = 0
-        isNear = false
-        updatePushUpCountDisplay()
-        if (isTtsInitialized && ::tts.isInitialized) {
-            tts.speak("Count reset", TextToSpeech.QUEUE_FLUSH, null, null)
+    private fun updateTimeAtMaxDisplay() {
+        if (maxPushupCount > 0) {
+            val countdownDurationWhenMaxWasAchieved =
+                sharedPreferences.getLong(KEY_COUNTDOWN_FOR_MAX_TIME, 0L)
+            if (countdownDurationWhenMaxWasAchieved > 0L) { // Check if a valid countdown was stored
+                if (timeRemainingAtMax == 0L) {
+                    textViewTimeAchievedAtMax.text = "Best: Max at 0s left (Timer: ${
+                        formatTime(countdownDurationWhenMaxWasAchieved)
+                    })"
+                } else {
+                    val timeAchievedFormatted = formatTime(timeRemainingAtMax)
+                    textViewTimeAchievedAtMax.text =
+                        "Best: Max with $timeAchievedFormatted left (Timer: ${
+                            formatTime(countdownDurationWhenMaxWasAchieved)
+                        })"
+                }
+            } else { // No specific countdown stored for the current max, or it's an old record
+                textViewTimeAchievedAtMax.text = "Best Time: N/A (or old record)"
+            }
+        } else {
+            textViewTimeAchievedAtMax.text = "Best Time: N/A"
         }
     }
-}
 
+    private fun formatTime(millis: Long): String {
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+
+}

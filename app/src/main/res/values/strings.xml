@@ -3,4 +3,8 @@
     <string name="title_home">Home</string>
     <string name="title_dashboard">Workout</string>
     <string name="title_exit">Exit</string>
+    <string name="statistic_timer_duration">%1$d Minute Timer</string>
+    <string name="statistic_max_pushups">Max Pushups: %1$d</string>
+    <string name="statistic_time_remaining">Time Left: %1$s</string>
+
 </resources>
