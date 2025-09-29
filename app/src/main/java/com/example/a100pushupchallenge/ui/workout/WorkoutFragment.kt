@@ -75,6 +75,7 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
     // Thresholds for flat detection (tweak these)
     private val Z_AXIS_GRAVITY_THRESHOLD =8.5f // m/s^2 (gravity is ~9.8)
     private val XY_AXIS_GRAVITY_THRESHOLD = 2.5f // m/s^2
+    private var tempText: String? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -411,6 +412,13 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
             tts.speak(currentPushupCount.toString(), TextToSpeech.QUEUE_FLUSH, null, null)
         }
     }
+    private fun speakIt(text: String) {
+
+        if (isTtsInitialized && ::tts.isInitialized && !tts.isSpeaking && text!= tempText) {
+            tempText = text
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        }
+    }
 
 
     private fun resetWorkoutState() {
@@ -515,6 +523,7 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
                         } else {
                             if (isSessionActive) { // Optional: provide feedback if they try to count but phone isn't flat
                                 Toast.makeText(context, "Place phone flat to count push-ups", Toast.LENGTH_SHORT).show()
+                                speakIt("Place phone flat to count push-ups")
                             }
                         }
                     }
