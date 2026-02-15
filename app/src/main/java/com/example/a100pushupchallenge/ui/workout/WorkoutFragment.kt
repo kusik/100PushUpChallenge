@@ -24,7 +24,6 @@ import com.bumptech.glide.Glide
 import com.example.a100pushupchallenge.R
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import androidx.navigation.fragment.findNavController
 
 class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
 
@@ -59,8 +58,6 @@ class WorkoutFragment : Fragment(), SensorEventListener, OnInitListener {
 
     private lateinit var sharedPreferences: SharedPreferences
     private val PREF_NAME = "PushUpPrefs"
-    private val KEY_MAX_PUSHUPS = "maxPushups"
-    private val KEY_TIME_REMAINING_AT_MAX = "timeRemainingAtMax"
     private val KEY_USER_COUNTDOWN_MINUTES = "userCountdownMinutes"
 
     // Optional: To store the countdown duration that was active when a max was achieved.
