@@ -13,11 +13,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.Toast
-import androidx.appcompat.widget.SwitchCompat // <<<<<<<<<< 1. ENSURE THIS IMPORT IS CORRECT
+import androidx.appcompat.widget.SwitchCompat
 import androidx.fragment.app.Fragment
 import com.example.a100pushupchallenge.R
 import com.example.a100pushupchallenge.util.NotificationReceiver
-// REMOVE: import com.google.android.material.materialswitch.MaterialSwitch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -70,6 +69,13 @@ class SettingsFragment : Fragment() {
             if (isChecked) {
                 scheduleHourlyNotifications()
                 Toast.makeText(context, "Hourly reminders enabled.", Toast.LENGTH_SHORT).show()
+                // ==================== START: TEMPORARY TEST CODE ====================
+                // This line sends a broadcast directly to your NotificationReceiver,
+                // bypassing the AlarmManager for an immediate test.
+                requireContext().sendBroadcast(Intent(requireContext(), NotificationReceiver::class.java))
+                Toast.makeText(context, "TEST: Firing notification now!", Toast.LENGTH_LONG).show()
+                // ===================== END: TEMPORARY TEST CODE =====================
+
             } else {
                 cancelNotifications()
                 Toast.makeText(context, "Reminders disabled.", Toast.LENGTH_SHORT).show()
@@ -136,14 +142,6 @@ class SettingsFragment : Fragment() {
     private fun scheduleHourlyNotifications() {
         val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = getPendingIntent()
-
-        val calendar = Calendar.getInstance().apply {
-            timeInMillis = System.currentTimeMillis()
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            add(Calendar.HOUR_OF_DAY, 1)
-        }
-
         alarmManager.setInexactRepeating(
             AlarmManager.ELAPSED_REALTIME_WAKEUP,
             SystemClock.elapsedRealtime() + AlarmManager.INTERVAL_HOUR, // Start after one hour
