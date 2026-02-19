@@ -69,12 +69,6 @@ class SettingsFragment : Fragment() {
             if (isChecked) {
                 scheduleHourlyNotifications()
                 Toast.makeText(context, "Hourly reminders enabled.", Toast.LENGTH_SHORT).show()
-                // ==================== START: TEMPORARY TEST CODE ====================
-                // This line sends a broadcast directly to your NotificationReceiver,
-                // bypassing the AlarmManager for an immediate test.
-                requireContext().sendBroadcast(Intent(requireContext(), NotificationReceiver::class.java))
-                Toast.makeText(context, "TEST: Firing notification now!", Toast.LENGTH_LONG).show()
-                // ===================== END: TEMPORARY TEST CODE =====================
 
             } else {
                 cancelNotifications()
@@ -142,9 +136,18 @@ class SettingsFragment : Fragment() {
     private fun scheduleHourlyNotifications() {
         val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = getPendingIntent()
-        alarmManager.setInexactRepeating(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + AlarmManager.INTERVAL_HOUR, // Start after one hour
+
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = System.currentTimeMillis()
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.HOUR_OF_DAY, 1)
+        }
+
+        alarmManager.setRepeating(
+            AlarmManager.RTC_WAKEUP,
+            calendar.timeInMillis,
             AlarmManager.INTERVAL_HOUR,
             pendingIntent
         )
